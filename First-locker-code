@@ -18,7 +18,25 @@
 #include "application.h"
 
 
+bool open = 1, closed = 0;
+
+
+
+
+
+
+
 void setup() {
+   if ((checkDoor() == closed) && (checkBoard() == occupied))
+   {
+      setRentalStatus("G");
+   }
+   else 
+   {
+      notifyCloud();
+      failSafe();
+   }
+  
  }
  
  void loop() {
@@ -26,17 +44,28 @@ void setup() {
  
  
 
-  void checkDoor() {
+  bool checkDoor() {
   }
   
-  void checkBoard() {
+  bool checkBoard() {
   }
   
-  void checkRentalStatus() {
+  char checkRentalStatus() {
   }
   
-  void ceckActivation() {
+  void setRentalStatus(char arg) {
   }
   
-  void checkInitialization() {
+  
+  bool ceckActivation() {
+  }
+  
+  bool checkIniation() {
+  }
+  
+  
+  void notifyCloud(arg1, arg2, arg3) {
+  }
+
+  void failSafe() {
   }
