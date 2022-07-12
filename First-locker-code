@@ -4,12 +4,4 @@
 
 //Adding standard librarys
 #include <stdio.h>
-
-#test
-#Mestest too
-
-# Kyeol Test Test 
-
-# Teja Teja 
-
-# Teja Kumudha 
+#include <stdlib.h>
