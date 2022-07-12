@@ -1,0 +1,6 @@
+//------------------------
+// This is the code for Locker Checkin following the flow chart
+//-------------------------
+
+//Adding standard librarys
+#include <stdio.h>
