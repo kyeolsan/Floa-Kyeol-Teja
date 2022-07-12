@@ -1,12 +1,453 @@
-//------------------------
-// This is the code for Locker Checkin following the flow chart
-//-------------------------
-
-//Adding standard librarys
-#include <stdio.h>
-#include <stdlib.h>
-
+/*
+ * Project floa-locker
+ * Description:
+ * Author:
+ * Date:
+ */
+#include <Particle.h>
+// Solves Particle string class / arduino JSON issues
+// https://arduinojson.org/v6/faq/how-to-use-the-string-class-on-particle/
+#define ARDUINOJSON_ENABLE_ARDUINO_STRING (1)
 #include <ArduinoJson.h>
 #include "application.h"
+#include "Relayfinal.h"
 
-#include <Particle.h>
+
+// pool the sensor
+Timer readSensor(100, objectStatus);
+
+// Watchdog timer software resets itself from deadlock 
+ApplicationWatchdog wd(WD_TIMEOUT, systemTimeout);
+
+unsigned char txbuf[10] = {0};
+unsigned char rxbuf[10] = {0};
+
+
+typedef enum {
+
+  SLAVEADDR_INDEX = 0,
+  PID_INDEX,
+  VERSION_INDEX ,
+
+  DIST_H_INDEX,
+  DIST_L_INDEX,
+
+  TEMP_H_INDEX,
+  TEMP_L_INDEX,
+
+  CFG_INDEX,
+  CMD_INDEX,
+  REG_NUM
+
+} regindexTypedef;
+
+#define    MEASURE_MODE_PASSIVE    (0x00)
+#define    MEASURE_RANG_500        (0x20)
+#define    CMD_DISTANCE_MEASURE    (0x01)
+
+/*
+  setup()
+*/
+void setup() {
+  /*
+    Init hardware
+  */
+
+  initHardware();
+
+  /*
+    Set all global variable defaults here
+  */
+
+  initGlobalVars();
+
+  /*
+  
+  Set default status for locker
+
+  */
+
+  doorStatus();
+  relayStatus();
+  objectStatus();
+  //doorStatus2();
+
+  pinMode(RELAY, OUTPUT);
+  pinMode(RELAY_UNSET, OUTPUT);
+  pinMode(RELAY2, OUTPUT);
+  pinMode(RELAY2_UNSET, OUTPUT);
+  pinMode(MAG_CONTACTS, INPUT);
+  pinMode(MAG_CONTACT2, INPUT);
+
+
+
+  /*
+    Particle Clound Integration
+  */
+
+  // Variables
+  Particle.variable("status", status);
+
+  // Functions
+  Particle.function("forceStatusUpdate", forceStatusUpdate);
+  Particle.function("toggleRelay", toggleRelay);
+  Particle.function("relayControl", relayControl);
+  Particle.function("resetDevice", resetDevice);
+
+
+  // start our timers
+  readSensor.start();
+}
+
+/*
+  loop()
+*/
+void loop() {
+  wd.checkin(); // kick the dog
+  int16_t  dist, temp;
+  txbuf[0] = CMD_DISTANCE_MEASURE;
+  unsigned int addr0=20;
+   //dist = getMeasurementFromHCSR04();
+  // if locker state has changed, update json variable
+  if (stateChanged) {
+    status = "";
+    serializeJson(doc, status);
+    stateChanged = false;   // Sets to false, so it doesn't check other status state, and enter if statechange to update json variable 
+
+    // start relay on timer
+    if (locker1Status[RELAY_STATUS]) { // If locker has the object, then start the relay timer 
+      relayOnStartTime = millis();
+      }
+    
+    else {
+      relayOnStartTime = 0;
+    }
+  }
+    //start door open timer
+    if ((locker1Status[DOOR_STATUS]) && (locker1Status[RELAY_STATUS]) && (locker1Status[DOOR_STATUS2])) {
+      doorOpenStateTime = millis();
+      dist = getMeasurementFromHCSR04();
+
+    }
+    else {
+      doorOpenStateTime = 0;
+    }
+
+//while(doorOpenStateTime>10000) {
+    //dist = getMeasurementFromHCSR04();
+
+//}
+    
+  
+
+  // relay timeout, // changed the code to make it 0.1 seconds
+  if ((relayOnStartTime > 0) && (millis() > (relayOnStartTime + REALY_TIMEOUT))) {
+    digitalWrite(RELAY, LOW);
+    relayStatus();
+  }
+
+  // door open, //checks if the door is closed, after the door is closed it checks if the object exists, object shall not existed during the time of rental 
+  if ((doorOpenStateTime > 0) && (millis() > (doorOpenStateTime + DOOR_TIMEOUT))) {
+    digitalWrite(RELAY, LOW);
+    relayStatus();
+  }
+
+  // device reset
+  if (deviceReset) {
+    System.reset();
+  }
+  i2cWriteBytes(addr0, CMD_INDEX , &txbuf[0], 1 );//write register, send ranging command
+  delay(100);
+
+  i2cReadBytes(addr0, DIST_H_INDEX , 2 );//read distance register
+  dist = ((uint16_t)rxbuf[0] << 8) + rxbuf[1];
+  
+  i2cReadBytes(addr0, TEMP_H_INDEX , 2 );
+  temp = ((uint16_t)rxbuf[0] << 8) + rxbuf[1];
+
+
+}
+
+/*
+  Device init sequences
+*/
+void initGlobalVars() {
+  // update device ID
+  myId = System.deviceID();
+  // used to signal a state change to the main loop
+  stateChanged = false;
+  // track object state changes
+  currentObjectStatus = 0;
+  lastObjectStatus = 0;
+  // relay timeout variable
+  relayOnStartTime = 0;
+  // door open start time
+  doorOpenStateTime = 0;
+  // device reset
+  deviceReset = false;
+}
+
+void initHardware() {
+  Wire.begin();
+  // init serial com
+  Serial.begin(115200);
+  txbuf[0] =  (MEASURE_MODE_PASSIVE | MEASURE_RANG_500);//the measurement mode is set to passive mode, measurement range is set to 500CM.
+  unsigned int addr0=20;
+  i2cWriteBytes(addr0, CFG_INDEX , &txbuf[0], 1 );//
+  delay(100);
+  // magnetic contacts
+  pinMode(MAG_CONTACT2, INPUT_PULLUP);
+  attachInterrupt(MAG_CONTACT2, doorStatus, CHANGE);
+
+  // relay control
+  pinMode(RELAY, OUTPUT);
+  digitalWrite(RELAY, LOW);
+
+// Door 2
+  pinMode(MAG_CONTACTS, INPUT_PULLUP);
+  attachInterrupt(MAG_CONTACTS, doorStatus, CHANGE);
+
+
+  // HC-SR04
+  //pinMode(TRIGGER, OUTPUT);
+  //pinMode(ECHO, INPUT);
+  //digitalWrite(TRIGGER, LOW);
+}
+
+/*
+  doorStatus()
+
+  Used as ISR to update magnetic contact circuit status (door open/closed)
+*/
+void doorStatus() {
+  locker1Status[DOOR_STATUS] = digitalRead(MAG_CONTACT2);
+  stateChanged = true;
+
+
+}
+
+//void doorStatus2() {
+  //locker1Status[DOOR_STATUS2] = digitalRead(MAG_CONTACTS);
+  //stateChanged = true;
+//}
+
+/*
+  objectStatus()
+
+  Used to detect if an object is in the locker
+*/
+
+void objectStatus() {
+  // distance of object in locker
+  unsigned long distance;
+  // total distance (in CM)
+  float total;
+
+  // update last status
+  lastObjectStatus = currentObjectStatus;
+
+  // Thought timing not critical because we aren't measuring the time rather the distance
+ // ATOMIC_BLOCK() {
+    distance = getMeasurementFromHCSR04();
+    total= (distance/58.0);
+  //}
+
+  //total = (distance);
+  //Serial.println("Total is ");
+  //Serial.print(distance, DEC);
+
+  // TODO: this is arbitrary; replace w/ real value
+  // distance between door & back of locker
+  if ((total > 0) && (total <= 24.00)) {
+    // lockerStatus[OBJECT_STATUS] = 1;
+    currentObjectStatus = 1.0;
+    //Serial.println("Currentobjectstatus is ");
+    //Serial.print(currentObjectStatus, DEC);
+    //delay(10000);
+  } 
+  else {
+     //lockerStatus[OBJECT_STATUS] = 0;
+    currentObjectStatus = 0;
+    
+  }
+
+  if (currentObjectStatus != lastObjectStatus) {
+      stateChanged = true;
+      locker1Status[OBJECT_STATUS] = currentObjectStatus;
+  }
+}
+
+unsigned long getMeasurementFromHCSR04() {
+  int16_t  dist, temp;
+  txbuf[0] = CMD_DISTANCE_MEASURE;
+  unsigned int addr0=20;
+  i2cWriteBytes(addr0, CMD_INDEX , &txbuf[0], 1 );//write register, send ranging command
+  delay(100);
+
+  i2cReadBytes(addr0, DIST_H_INDEX , 2 );//read distance register
+  dist = ((uint16_t)rxbuf[0] << 8) + rxbuf[1];
+  
+  i2cReadBytes(addr0, TEMP_H_INDEX , 2 );
+  temp = ((uint16_t)rxbuf[0] << 8) + rxbuf[1];
+  
+  //Serial.print(dist, DEC);
+  //Serial.print("cm");
+  //Serial.print("------");
+
+  //Serial.print((float)temp / 10, 1);
+  //Serial.println("℃");
+
+  //if(dist>30){
+    //Serial.print("Object not detected");
+ // }
+//if(dist<30) { //Object detected logic to send user the notification 
+  //Serial.print("Object detected"); // QR Code kicks the API to particle, timeout on webapp, pull function on the website to ask if the object is there, edit the code in website 
+//}
+
+  // The sensor is triggered by a HIGH pulse of 10 or more microseconds.
+  // Give a short LOW pulse beforehand to ensure a clean HIGH pulse.
+  //digitalWrite(TRIGGER, LOW);
+  //delayMicroseconds(5);
+
+  // Hold the trigger pin high for at least 10 us
+  //digitalWrite(TRIGGER, HIGH);
+  //delayMicroseconds(10);
+  //digitalWrite(TRIGGER, LOW);
+  
+  // Read the signal from the sensor: a HIGH pulse whose
+  // duration is the time (in microseconds) from the sending
+  // of the ping to reception of its echo off an object
+  //duration = pulseIn(ECHO, HIGH);
+
+
+  // if outside of MAX_DIST return 0
+  //if (duration >= MAX_DIST) {
+  //}
+  
+  // Calculate distance in centimeters and inches. The constants
+  // are found in the datasheet, and calculated from the assumed speed 
+  // of sound in air at sea level (~340 m/s).
+  // cm = (duration / 58.0);
+  // inches = (duration / 148.0);
+  // range = ((duration * 340) / 2.0);
+  
+  // 60us between measurements is the suggested gap between samples
+  // https://cdn.sparkfun.com/assets/b/3/0/b/a/DGCH-RED_datasheet.pdf
+
+  return dist;
+
+}
+
+/*
+  relayStatus()
+
+  Used to update the state of the relay
+*/
+void relayStatus() {
+  locker1Status[RELAY_STATUS] = digitalRead(RELAY);
+  stateChanged = true;
+
+
+
+}
+
+/*
+  systemTimeout()
+*/
+void systemTimeout() {
+  // TODO: add some logging
+  System.reset();
+}
+
+/*
+  Particle Clound Functions
+*/
+int forceStatusUpdate(const char *data) {
+  // Clear out previous data from string output
+  status = "";
+
+  doorStatus();
+  relayStatus();
+  objectStatus();
+ // doorStatus2();
+
+  serializeJson(locker1Status, status);
+
+  stateChanged = false;
+
+  return 200;
+}
+
+int toggleRelay(const char *data) {
+  digitalWrite(RELAY, (!digitalRead(RELAY)));
+  relayStatus();
+  return digitalRead(RELAY);
+}
+
+int relayControl(const char *data) {
+  String tmp = String(data);
+  int cmd = tmp.toInt();
+  boolean test = toBoolean(cmd);
+
+
+Serial.print("CMD is");
+Serial.print(cmd);
+Serial.print(test);
+
+digitalWrite(RELAY, test);
+delay(300);
+digitalWrite(RELAY, !test);
+delay(300);
+
+digitalWrite(RELAY_UNSET, test);
+delay(300);
+digitalWrite(RELAY_UNSET, !test);
+delay(300);
+
+digitalWrite(RELAY2, test);
+delay(300);
+digitalWrite(RELAY2, !test);
+delay(300);
+
+digitalWrite(RELAY2_UNSET, test);
+delay(300);
+digitalWrite(RELAY2_UNSET, !test);
+delay(300);
+
+relayStatus();
+
+  return cmd;
+}
+
+int resetDevice(const char *data) {
+  deviceReset = true;
+  return 1;
+}
+
+void i2cWriteBytes(unsigned char addr_t, unsigned char Reg , unsigned char *pdata, unsigned char datalen )
+{
+  Wire.beginTransmission(addr_t); // transmit to device #8
+  Wire.write(Reg);              // sends one byte
+
+  for (uint8_t i = 0; i < datalen; i++) {
+    Wire.write(*pdata);
+    pdata++;
+  }
+
+  Wire.endTransmission();    // stop transmitting
+}
+
+void i2cReadBytes(unsigned char addr_t, unsigned char Reg , unsigned char Num )
+{
+  unsigned char i = 0;
+  Wire.beginTransmission(addr_t); // transmit to device #8
+  Wire.write(Reg);              // sends one byte
+  Wire.endTransmission();    // stop transmitting
+  Wire.requestFrom(addr_t, Num);
+  while (Wire.available())   // slave may send less than requested
+  {
+    rxbuf[i] = Wire.read();
+    i++;
+  }
+}
+
