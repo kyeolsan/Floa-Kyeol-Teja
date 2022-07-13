@@ -27,19 +27,44 @@ bool open = 1, closed = 0;
 
 
 void setup() {
-   if ((checkDoor() == closed) && (checkBoard() == occupied))
+   if ((checkDoor() == CLOSED) && (checkBoard() == OCCUPIED))
    {
+      // sets rental status to green (locker ready to check-out) //
       setRentalStatus("G");
    }
    else 
    {
-      notifyCloud();
+      // Notify the cloud that rental status not Green or not ready to to be used//
+      notifyCloud(" NOt Ready" );
       failSafe();
    }
   
  }
  
  void loop() {
+ 
+   If (checkActivation() == ACTIVATED)
+   {
+      // notify rental status so user/front-end can command iniation, rental status should already be in memory without checking again.//
+      //And locker should already be Activated//
+      notifyCloud( *checkRentalStatus(?),  *checkActivation(ACTIVATED),  ...)
+      
+      If ( checkIniation()== "CHECK-OUT")
+      {
+           // Echo Iniation, "Check-out" //
+           notifyCloud( *checkIniation(),   ...)
+           
+           
+      }
+      else
+      {
+          // will already be iniated as "check-in" just echo "check-in". do not check again only pass by reference And echo iniation //
+          notifyCloud( *checkIniation(),   ... )
+          // Goto check-in procedure//
+      }
+   }
+ 
+ 
  {
  
  
@@ -57,7 +82,7 @@ void setup() {
   }
   
   
-  bool ceckActivation() {
+  bool checkActivation() {
   }
   
   bool checkIniation() {
