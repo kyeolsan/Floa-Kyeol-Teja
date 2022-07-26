@@ -130,9 +130,10 @@ void setup() {
    notifyCloud("locker deactivated");
    failSafe();
    
+   }
  
  
- {
+ }
  
  
 
