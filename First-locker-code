@@ -19,6 +19,7 @@
 
 
 bool open = 1, closed = 0;
+bool pull = 1, not pulled = 0;
 
 
 
@@ -53,7 +54,53 @@ void setup() {
       {
            // Echo Iniation, "Check-out" //
            notifyCloud( *checkIniation(),   ...)
+           //Check Rental Status 
+           if(setRentalStatus==G || Y) {
+           notifyCloud("Iniated checkout");
+           //Triggerlatch to confirm the rent 
+           setRentalStatus("Y");
+           }
            
+           else {
+           notifyCloud("locker vacant");
+           }
+           
+        if (checkBoard == 1) {
+        
+          //check door status 
+          if (checkDoor ==1) {
+          setRentalStatus("R");
+          notifyCloud("Board is pulled and checkout complete")
+          }
+          else {
+          //check activiation status 
+           If (checkActivation() == ACTIVATED){
+           notifyCloud("Board not pulled and door open");
+           }
+           else{
+           notifyCloud("Deactivated");
+           failSafe();
+           }
+          }
+        }
+       else {
+       //Check if door is closed 
+       if (checkDoor ==1) {
+        notifyCloud(" Board not pulled and door is closed);
+        notifyCloud("Rental Status");
+       }
+       else {
+       //check activation 
+       If (checkActivation() == ACTIVATED) {
+        notifyCloud("Board not pulled and door open");
+        }
+        else {
+        notifyCloud("Deactivated");
+        failSafe();
+        }
+       }
+       }  
+       }
            
       }
       else
@@ -61,8 +108,28 @@ void setup() {
           // will already be iniated as "check-in" just echo "check-in". do not check again only pass by reference And echo iniation //
           notifyCloud( *checkIniation(),   ... )
           // Goto check-in procedure//
+          if(locker_initiation= checked in) {
+           //check rental status
+           if(setRentalStatus== Red || Orange) {
+            notifyCloud("check in")
+            //Trigger latch for check in 
+           }
+           else {
+           notifyCloud("locker occupied");
+           }
+          }
+          else {
+          notifyCloud("Waiting initiation");
+          notifyCloud("Rental Status");
+          }
       }
    }
+   
+   //Else for not activated 
+   else {
+   notifyCloud("locker deactivated");
+   failSafe();
+   
  
  
  {
